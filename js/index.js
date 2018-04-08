@@ -15,18 +15,25 @@ var projection = d3.geo.stereographic()
 var path = d3.geo.path()              //path generator function
     .projection(projection);
 
-var minMag = 5.5;
-
+var starPath = d3.geo.path()
+    .projection(projection)
+    .pointRadius(function(d){
+      return radius(d.properties.mag);
+    })
 //dragging function
 var drag = d3.behavior.drag()
-  .on('drag', function() {
-    console.log(d3.mouse(this));
+  .origin(Object)
+  .on('drag', function(d) {
     var p = projection.rotate();
-    rotate = [p[0] + d3.event.dx/3, p[1]-d3.event.dy/3]
-    console.log(rotate);
-    svg.attr('transform', 'translate('+rotate+')')
-    })
+    rotate = [p[0] + d3.event.dx/3, p[1]-d3.event.dy/3, p[2]];
 
+    projection.rotate(rotate);
+    path=d3.geo.path().projection(projection);
+    starPath=d3.geo.path().projection(projection).pointRadius(function(d){  return radius(d.properties.mag)})
+    d3.selectAll('.graticule, .lines, .boundaries').attr("d", path);
+    d3.selectAll('.stars').attr("d", starPath);
+    d3.selectAll('.names').attr('transform', 'translate('+[d3.event.dx/3, d3.event.dy/3]+')')
+    })
 //zooming FUNCTION
 function scrollZoom(){
   d3.event.preventDefault();
@@ -60,14 +67,11 @@ var svg = d3.select(".atlas").append("svg")
     .attr("width", width)
     .attr("height", height)
     .call(drag)
-    .on('wheel.zoom', scrollZoom);  //zoom function
-
+    .on('wheel.zoom', scrollZoom)  //zoom function
+    .attr('transform', `translate(${tx}, ${ty}) scale(${scale})`);
 //scale radius by star magnitude
-var starColor = d3.scale.linear()
-                  .domain([-1, -0,17, 0.15, 0.44, 0.68, 1.15, 2])
-                  .range(["#99d6ff", "#ccebff", "#ffffff", "#ffffcc", "#ffff99", "#ffb380", "#ff6666"])
 var radius = d3.scale.linear()
-    .domain([-minMag, 5])
+    .domain([-1, 5])
     .range([4, 1.5]);
 //
 svg.append("path")
@@ -89,58 +93,58 @@ svg.append("g")
 
 //parse data
 queue()
-  .defer(d3.csv, "https://gist.githubusercontent.com/elPaleniozord/433b888e3ed64da651f18d5c60682c8a/raw/76e8fa3fe6eb6aaf93154927788ecf6fd47e240c/hyg_data.csv", function(d){
-    if(d.mag < minMag){
-      var p = projection([-d.ra*15, d.dec]);
-      d[0] = p[0]; d[1] = p[1];
-      return d;
-    }
-  })
+  .defer(d3.csv, "https://gist.githubusercontent.com/elPaleniozord/433b888e3ed64da651f18d5c60682c8a/raw/76e8fa3fe6eb6aaf93154927788ecf6fd47e240c/hyg_data.csv")
   .defer(d3.json, "https://gist.githubusercontent.com/elPaleniozord/bb775473088f3f60c5f3ca1afeb88a82/raw/66a84de978c8c787916cb363894a8da6b62bb915/bounds.json")
   .defer(d3.json, "https://gist.githubusercontent.com/elPaleniozord/ed1dd65a955c2c7e1bb6cbc30feb523f/raw/9f2735f48f6f477064f9e151fe73cc7b0361bf2e/lines.json")
-  .await(mapRender);
+  .await(processData);
+
+//controlls, containers
+var minMag = 6.0;
+var starGeometry=[], linesGeometry=[], boundsGeometry=[];
 
 //map render
-function mapRender(error, hyg, bounds, lines){
-  //draw graticule
+function mapRender(){
   svg.select("path")
     .attr("d", path);
 
-  svg.selectAll('stars').data(hyg)
-    .enter().append('circle')
-    .attr('class', 'stars')
-    .attr("r", function(d){ return radius(d.mag); })
-    .attr("cx", function(d){ return d[0]; })
-    .attr("cy", function(d){ return d[1]; })
-    .style("fill", function(d){ return starColor(d.ci); })
-/* WORKING STAR DRAW
   //draw stars
-  var stars = svg.select(".stars").selectAll("circle")
-    .data(hyg);
+  svg.selectAll('stars').data(starGeometry)
+    .enter().append('path')
+    .attr('class', 'stars')
+    .attr("id", function (d,i) { return "path_" + i; })
+    .attr('d', starPath)
+    .style('fill', function(d){return d.properties.color})
+    .style('stroke-width', .2);
 
-  stars.enter().append("circle")
-    .attr("r", function(d) { return radius(d.mag); })   //radius for each star corresponding to star magnitude
-    .attr("fill", function(d) {
-      return starColor(d.ci); })            //color of each star, default = white
-    .attr("stroke-width", .4);
-
-  stars                                                       //coordinates for each star
-    .attr("cx", function(d) { return d[0]; })
-    .attr("cy", function(d) { return d[1]; });
-
-*/
   //add labels
-  svg.selectAll('text').data(hyg)
+/*
+  svg.selectAll('text').data(starGeometry)
     .enter().append('text')
     .attr('class', 'names')
-    .attr('x', function(d){ return d[0]; })
-    .attr('y', function(d){ return d[1]; })
+    .attr('x', function(d){ return projection(d.coordinates)[0]+8; })
+    .attr('y', function(d){ return projection(d.coordinates)[1]+8; })
     .text(function(d){
-      return d.proper; })
+      return d.properties.name; })
     .attr('fill', 'white');
+*/
+
+  svg.selectAll("text")
+                .data(starGeometry)
+                .enter()
+            .append("text")
+                .attr("x", 0)
+                .attr("dy", -6)
+                .style("pointer-events", "none")
+               .append("textPath")
+            .attr("xlink:href", function (d,i) { return "#path_" + i; })
+            .text(function (d,i) { return d.properties.name; })
+            .style('fill', 'white')
+            .style('font-size', 3)
+            .style("pointer-events", "none");
+
 
   //draw boundaries
-  svg.selectAll('boundaries').data(bounds)
+  svg.selectAll('boundaries').data(boundsGeometry)
     .enter().append('path')
     .attr('class', 'boundaries')
     .attr('d', path)
@@ -149,20 +153,17 @@ function mapRender(error, hyg, bounds, lines){
     .style('opacity', 0.3)
 
   //draw lines
-  svg.selectAll('lines').data(lines)
+  svg.selectAll('lines').data(linesGeometry)
     .enter().append('path')
     .attr('class', 'lines')
     .attr('d', path)
     .style('stroke', '#098bdc')
     .style('fill', 'none')
-
 }
 
 //process data
-/*
 function processData(error, hyg, bounds, lines){
   //process stars
-  console.log("processing hyg data");
   hyg.forEach(function(d){
     //translate color index to rgb
     var starColor = d3.scale.linear()
@@ -184,7 +185,6 @@ function processData(error, hyg, bounds, lines){
   })//hyg foreach end
 
   //boundaries data
-  console.log("processing boundary data");
   bounds.boundaries.forEach(function(d){
     d.shift();
     var points = [];
@@ -197,9 +197,7 @@ function processData(error, hyg, bounds, lines){
       coordinates: points
     });
   })//boundaries data render
-  console.log(boundsGeometry)
   //lines data
-  console.log("processing lines data")
   lines.features.forEach(function(d){
     let points = d.geometry.coordinates.map(function(d){
       return (
@@ -219,32 +217,3 @@ function processData(error, hyg, bounds, lines){
   //process lines
 mapRender();
 }
-*/
-//DATA PROCESSING
-/*
-queue()
-  .defer(d3.csv, "https://gist.githubusercontent.com/elPaleniozord/433b888e3ed64da651f18d5c60682c8a/raw/76e8fa3fe6eb6aaf93154927788ecf6fd47e240c/hyg_data.csv")
-  .defer(d3.json, "https://gist.githubusercontent.com/elPaleniozord/bb775473088f3f60c5f3ca1afeb88a82/raw/66a84de978c8c787916cb363894a8da6b62bb915/bounds.json")
-  .defer(d3.json, "https://gist.githubusercontent.com/elPaleniozord/ed1dd65a955c2c7e1bb6cbc30feb523f/raw/9f2735f48f6f477064f9e151fe73cc7b0361bf2e/lines.json")
-  .await(geojsonCon);
-var starGeometry=[], boundsGeometry=[], linesGeometry=[];
-function geojsonCon(error,hyg,bounds,lines){
-  hyg.forEach(function(d){
-    //translate color index to rgb
-    var starColor = d3.scale.linear()
-                      .domain([-1, -0,17, 0.15, 0.44, 0.68, 1.15, 2])
-                      .range(["#99d6ff", "#ccebff", "#ffffff", "#ffffcc", "#ffff99", "#ffb380", "#ff6666"])
-    //filter stars by magnitude
-      starGeometry.push({
-        type: "Point",
-        coordinates: [-d.ra*15, d.dec],
-        properties:{
-          color: starColor(d.ci),   //big time sink, change directly in database if no other solution found
-          mag: d.mag,
-          name: d.proper,
-        }
-      })
-  })//hyg foreach end
-console.log(starGeometry);
-};
-*/
